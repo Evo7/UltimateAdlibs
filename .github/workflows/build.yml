@@ -1,48 +1,8 @@
-name: Build VST3 Plugin
-
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:
-
-env:
-  PROJECT_NAME: UltimateAdlibs
-
-jobs:
-  build-mac:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download JUCE
-        run: |
-          curl -L https://github.com/juce-framework/JUCE/releases/download/7.0.9/juce-7.0.9-osx.zip -o juce.zip
-          unzip juce.zip
-          
-      - name: Build Projucer
-        run: |
-          cd JUCE/extras/Projucer/Builds/MacOSX
-          xcodebuild -project Projucer.xcodeproj -configuration Release -jobs $(sysctl -n hw.ncpu)
-
-      - name: Fix module paths and resave
-        run: |
-          sed -i '' 's|C:\\\\JUCE\\\\modules|JUCE/modules|g' ${{ env.PROJECT_NAME }}.jucer
-          sed -i '' 's|C:/JUCE/modules|JUCE/modules|g' ${{ env.PROJECT_NAME }}.jucer
-          JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer --set-global-search-path osx defaultJuceModulePath "$(pwd)/JUCE/modules"
-          JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer --resave ${{ env.PROJECT_NAME }}.jucer
-          
-      - name: Build VST3 Universal Binary
-        run: |
-          cd Builds/MacOSX
-          xcodebuild -project ${{ env.PROJECT_NAME }}.xcodeproj -configuration Release -jobs $(sysctl -n hw.ncpu) ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO
-          
-      - name: Zip VST3 bundle
+- name: Zip plugins
         run: |
           cd Builds/MacOSX/build/Release
           zip -r ${{ env.PROJECT_NAME }}-Mac-VST3.zip ${{ env.PROJECT_NAME }}.vst3
+          zip -r ${{ env.PROJECT_NAME }}-Mac-AU.zip ${{ env.PROJECT_NAME }}.component
           
       - name: Upload VST3 artifact
         uses: actions/upload-artifact@v4
@@ -50,36 +10,13 @@ jobs:
           name: ${{ env.PROJECT_NAME }}-Mac-VST3
           path: Builds/MacOSX/build/Release/${{ env.PROJECT_NAME }}-Mac-VST3.zip
 
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download JUCE
-        run: |
-          curl -L https://github.com/juce-framework/JUCE/releases/download/7.0.9/juce-7.0.9-windows.zip -o juce.zip
-          Expand-Archive -Path juce.zip -DestinationPath .
-          
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Build Projucer
-        run: |
-          msbuild "JUCE\extras\Projucer\Builds\VisualStudio2022\Projucer.sln" /p:Configuration=Release /p:Platform=x64
-
-      - name: Fix module paths and resave
-        run: |
-          (Get-Content "${{ env.PROJECT_NAME }}.jucer") -replace 'C:\\JUCE\\modules', 'JUCE/modules' -replace 'C:/JUCE/modules', 'JUCE/modules' | Set-Content "${{ env.PROJECT_NAME }}.jucer"
-          & "JUCE\extras\Projucer\Builds\VisualStudio2022\x64\Release\App\Projucer.exe" --set-global-search-path windows defaultJuceModulePath "$((Get-Location).Path)\JUCE\modules"
-          & "JUCE\extras\Projucer\Builds\VisualStudio2022\x64\Release\App\Projucer.exe" --resave "${{ env.PROJECT_NAME }}.jucer"
-          
-      - name: Build VST3
-        run: |
-          msbuild "Builds\VisualStudio2022\${{ env.PROJECT_NAME }}.sln" /p:Configuration=Release /p:Platform=x64
-          
-      - name: Upload VST3 artifact
+      - name: Upload AU artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PROJECT_NAME }}-Windows-VST3
-          path: Builds/VisualStudio2022/x64/Release/VST3/${{ env.PROJECT_NAME }}.vst3
+          name: ${{ env.PROJECT_NAME }}-Mac-AU
+          path: Builds/MacOSX/build/Release/${{ env.PROJECT_NAME }}-Mac-AU.zip
+```
+
+Après le build, tu auras un fichier `.component` (Audio Unit) à placer dans :
+```
+/Library/Audio/Plug-Ins/Components/
