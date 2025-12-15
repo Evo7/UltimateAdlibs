@@ -15,49 +15,48 @@ env:
 
 jobs:
   build_mac:
-    name: Build MacOS (No Mac Required)
-    runs-on: macos-13 # On utilise macOS 13 (Ventura) qui est très stable pour Xcode ok
+    name: Build MacOS (Universal)
+    # UTILISATION DE LA DERNIÈRE VERSION DISPONIBLE (macOS 14/15 sur M1)
+    runs-on: macos-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ÉTAPE 1 : Télécharger une version STABLE de JUCE (7.0.12)
-      - name: Install JUCE (Stable)
+      # ÉTAPE 1 : Télécharger JUCE 7.0.12 (Stable)
+      - name: Install JUCE
         run: |
           echo "Cloning JUCE 7.0.12..."
           git clone --depth 1 --branch 7.0.12 https://github.com/juce-framework/JUCE.git JUCE
 
-      # ÉTAPE 2 : Compiler le Projucer (Correction Target vs Scheme)
+      # ÉTAPE 2 : Compiler le Projucer
+      # Sur macos-latest, Xcode est déjà configuré, pas besoin de setup-xcode complexe
       - name: Build Projucer
         run: |
           echo "Building Projucer..."
           cd JUCE/extras/Projucer/Builds/MacOSX
-          # CORRECTION ICI : Utilisation de -scheme au lieu de -target
+          # On utilise -scheme pour éviter les erreurs de cibles
           xcodebuild -project Projucer.xcodeproj -scheme Projucer -configuration Release -allowProvisioningUpdates
 
-      # ÉTAPE 3 : Générer le projet Xcode grâce au Projucer
+      # ÉTAPE 3 : Générer le projet Xcode pour VOTRE plugin
       - name: Generate Xcode Project via Projucer
         run: |
           echo "Generating Xcode project from .jucer file..."
-          # Le chemin vers l'app compilée
           PROJUCER_APP="./JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer"
-          
-          # On rend le Projucer exécutable (juste au cas où)
           chmod +x "$PROJUCER_APP"
           
-          # On génère le projet
+          # Génération du dossier Builds/MacOSX qui vous manquait
           "$PROJUCER_APP" --resave "${{ env.JUCER_FILE }}"
           
-          # Vérification
           if [ ! -d "${{ env.XCODE_PROJECT_PATH }}" ]; then
             echo "::error::Failed to generate Xcode project!"
             exit 1
           fi
 
-      # ÉTAPE 4 : Compiler le plugin (AU & VST3)
+      # ÉTAPE 4 : Compiler le plugin (AU & VST3) en mode Universel (Intel + Apple Silicon)
       - name: Build Audio Plugin
         run: |
+          # Le -arch x86_64 -arch arm64 assure que le plugin marche partout
           xcodebuild -project "${{ env.XCODE_PROJECT_PATH }}" \
             -scheme "${{ env.PROJECT_NAME }}" \
             -configuration Release \
@@ -68,18 +67,16 @@ jobs:
             -allowProvisioningUpdates \
             build
 
-      # ÉTAPE 5 : Zip et Upload
+      # ÉTAPE 5 : Zip et Vérification
       - name: Zip Plugins
         run: |
           cd "${{ env.BUILD_DIR }}"
           
-          # Vérification de sécurité
           if [ ! -d "${{ env.PROJECT_NAME }}.component" ]; then
             echo "::error::.component file missing! Check logs above."
             exit 1
           fi
 
-          # Création des archives
           zip -r "${{ env.PROJECT_NAME }}-Mac-VST3.zip" "${{ env.PROJECT_NAME }}.vst3"
           zip -r "${{ env.PROJECT_NAME }}-Mac-AU.zip" "${{ env.PROJECT_NAME }}.component"
 
