@@ -9,49 +9,53 @@ on:
 
 env:
   PROJECT_NAME: UltimateAdlibs
-  # Le nom du fichier .jucer à la racine
   JUCER_FILE: UltimateAdlibs.jucer
-  # Chemins qui seront générés par le Projucer
   XCODE_PROJECT_PATH: Builds/MacOSX/UltimateAdlibs.xcodeproj
   BUILD_DIR: Builds/MacOSX/build/Release
 
 jobs:
   build_mac:
     name: Build MacOS (No Mac Required)
-    runs-on: macos-latest
+    runs-on: macos-13 # On utilise macOS 13 (Ventura) qui est très stable pour Xcode
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ÉTAPE 1 : Télécharger JUCE (nécessaire car le .jucer pointe vers JUCE/modules)
-      - name: Install JUCE
+      # ÉTAPE 1 : Télécharger une version STABLE de JUCE (7.0.12)
+      - name: Install JUCE (Stable)
         run: |
-          echo "Cloning JUCE..."
-          # On clone dans un dossier "JUCE" car votre fichier .jucer attend les modules dans "JUCE/modules"
-          git clone --depth 1 --branch master https://github.com/juce-framework/JUCE.git JUCE
+          echo "Cloning JUCE 7.0.12..."
+          git clone --depth 1 --branch 7.0.12 https://github.com/juce-framework/JUCE.git JUCE
 
-      # ÉTAPE 2 : Compiler le Projucer (L'outil qui génère le projet Xcode)
+      # ÉTAPE 2 : Compiler le Projucer (Correction Target vs Scheme)
       - name: Build Projucer
         run: |
           echo "Building Projucer..."
           cd JUCE/extras/Projucer/Builds/MacOSX
-          xcodebuild -configuration Release -target Projucer -quiet
-          
+          # CORRECTION ICI : Utilisation de -scheme au lieu de -target
+          xcodebuild -project Projucer.xcodeproj -scheme Projucer -configuration Release -allowProvisioningUpdates
+
       # ÉTAPE 3 : Générer le projet Xcode grâce au Projucer
       - name: Generate Xcode Project via Projucer
         run: |
           echo "Generating Xcode project from .jucer file..."
-          # On utilise le Projucer qu'on vient de compiler pour "resave" votre projet
-          ./JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer --resave "${{ env.JUCER_FILE }}"
+          # Le chemin vers l'app compilée
+          PROJUCER_APP="./JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer"
           
-          # Vérification que le projet a bien été créé
+          # On rend le Projucer exécutable (juste au cas où)
+          chmod +x "$PROJUCER_APP"
+          
+          # On génère le projet
+          "$PROJUCER_APP" --resave "${{ env.JUCER_FILE }}"
+          
+          # Vérification
           if [ ! -d "${{ env.XCODE_PROJECT_PATH }}" ]; then
             echo "::error::Failed to generate Xcode project!"
             exit 1
           fi
 
-      # ÉTAPE 4 : Compiler le plugin (AU & VST3) en mode Universel (Intel + M1/M2)
+      # ÉTAPE 4 : Compiler le plugin (AU & VST3)
       - name: Build Audio Plugin
         run: |
           xcodebuild -project "${{ env.XCODE_PROJECT_PATH }}" \
@@ -61,17 +65,17 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
+            -allowProvisioningUpdates \
             build
 
-      # ÉTAPE 5 : Vérification et Zip
+      # ÉTAPE 5 : Zip et Upload
       - name: Zip Plugins
         run: |
           cd "${{ env.BUILD_DIR }}"
-          ls -la
           
           # Vérification de sécurité
           if [ ! -d "${{ env.PROJECT_NAME }}.component" ]; then
-            echo "::error::.component file missing!"
+            echo "::error::.component file missing! Check logs above."
             exit 1
           fi
 
