@@ -16,14 +16,14 @@ env:
 jobs:
   build_mac:
     name: Build MacOS (Universal)
-    # On reste sur macOS 14 pour la compatibilité JUCE 7 / Xcode 15
+    # On reste sur macOS 14 (Sonoma) pour la stabilité avec JUCE 7
     runs-on: macos-14
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 1. Télécharger JUCE 7.0.12
+      # 1. Télécharger JUCE
       - name: Install JUCE
         run: |
           echo "Cloning JUCE 7.0.12..."
@@ -32,43 +32,35 @@ jobs:
       # 2. Compiler le Projucer avec CMAKE
       - name: Build Projucer using CMake
         run: |
-          echo "Configuring JUCE to build Projucer..."
           cd JUCE
           cmake . -B cmake-build -DJUCE_BUILD_EXTRAS=ON -DCMAKE_BUILD_TYPE=Release
-          echo "Building Projucer..."
           cmake --build cmake-build --target Projucer --config Release
 
-      # 3. Générer le projet Xcode (AVEC LA CORRECTION DES CHEMINS)
+      # 3. Générer le projet Xcode
       - name: Generate Xcode Project via Projucer
         run: |
-          echo "Locating Projucer binary..."
           PROJUCER_APP=$(find JUCE/cmake-build -name Projucer -type f | grep "MacOS/Projucer" | head -n 1)
           chmod +x "$PROJUCER_APP"
           
-          echo "Fixing .jucer paths..."
-          # --- CORRECTION CRUCIALE ICI ---
-          # On force le fichier à ne pas utiliser les chemins globaux (vides sur la CI)
+          # Correction des chemins dans le .jucer
           sed -i '' 's/useGlobalPath="1"/useGlobalPath="0"/g' "${{ env.JUCER_FILE }}"
-          
-          # On s'assure que les chemins pointent bien vers le dossier JUCE local
-          # (Cette commande remplace ../JUCE/modules par JUCE/modules si nécessaire)
           sed -i '' 's|path=".*JUCE/modules"|path="JUCE/modules"|g' "${{ env.JUCER_FILE }}"
-          # -------------------------------
 
-          echo "Generating Xcode project..."
           "$PROJUCER_APP" --resave "${{ env.JUCER_FILE }}"
-          
-          if [ ! -d "${{ env.XCODE_PROJECT_PATH }}" ]; then
-            echo "::error::Failed to generate Xcode project!"
-            exit 1
-          fi
 
-      # 4. Compiler le plugin pour Logic Pro
-      - name: Build Audio Plugin
+      # 4. DEBUG : Lister les schémas disponibles (Pour être sûr à 100%)
+      - name: List Xcode Schemes
         run: |
-          echo "Building plugin via xcodebuild..."
+          echo "Listing available schemes..."
+          xcodebuild -project "${{ env.XCODE_PROJECT_PATH }}" -list
+
+      # 5. Compiler la version AU (Audio Unit - Pour Logic Pro)
+      - name: Build AU Plugin
+        run: |
+          echo "Building AU..."
+          # On cible spécifiquement le schéma "UltimateAdlibs - AU"
           xcodebuild -project "${{ env.XCODE_PROJECT_PATH }}" \
-            -scheme "${{ env.PROJECT_NAME }}" \
+            -scheme "${{ env.PROJECT_NAME }} - AU" \
             -configuration Release \
             -arch x86_64 -arch arm64 \
             ONLY_ACTIVE_ARCH=NO \
@@ -77,14 +69,30 @@ jobs:
             -allowProvisioningUpdates \
             build
 
-      # 5. Zip et Upload
+      # 6. Compiler la version VST3 (Pour les autres DAWs)
+      - name: Build VST3 Plugin
+        run: |
+          echo "Building VST3..."
+          # On cible spécifiquement le schéma "UltimateAdlibs - VST3"
+          xcodebuild -project "${{ env.XCODE_PROJECT_PATH }}" \
+            -scheme "${{ env.PROJECT_NAME }} - VST3" \
+            -configuration Release \
+            -arch x86_64 -arch arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            -allowProvisioningUpdates \
+            build
+
+      # 7. Zip et Upload
       - name: Zip Plugins
         run: |
           cd "${{ env.BUILD_DIR }}"
           ls -la
           
+          # Vérification que le AU est bien là (Priorité absolue)
           if [ ! -d "${{ env.PROJECT_NAME }}.component" ]; then
-            echo "::error::.component file missing! Build failed."
+            echo "::error::AU Plugin (.component) failed to build."
             exit 1
           fi
 
