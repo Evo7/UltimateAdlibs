@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <JUCERPROJECT id="fFybPY" name="UltimateAdlibs" projectType="audioplug" useAppConfig="0"
-              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1">
+              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
+              pluginFormats="buildAU,buildVST3"
+              pluginManufacturer="UltimateAdlibs"
+              pluginManufacturerCode="UltA"
+              pluginCode="UltA">
   <MAINGROUP id="YwdO6V" name="UltimateAdlibs">
     <GROUP id="{265367D6-31D6-C67D-F991-14798728F3CC}" name="Source">
       <FILE id="koDrX1" name="PluginProcessor.cpp" compile="1" resource="0"
