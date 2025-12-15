@@ -16,47 +16,53 @@ env:
 jobs:
   build_mac:
     name: Build MacOS (Universal)
-    # UTILISATION DE LA DERNIÈRE VERSION DISPONIBLE (macOS 14/15 sur M1)
     runs-on: macos-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ÉTAPE 1 : Télécharger JUCE 7.0.12 (Stable)
+      # 1. Télécharger JUCE
       - name: Install JUCE
         run: |
           echo "Cloning JUCE 7.0.12..."
           git clone --depth 1 --branch 7.0.12 https://github.com/juce-framework/JUCE.git JUCE
 
-      # ÉTAPE 2 : Compiler le Projucer
-      # Sur macos-latest, Xcode est déjà configuré, pas besoin de setup-xcode complexe
-      - name: Build Projucer
+      # 2. Compiler le Projucer avec CMAKE (Beaucoup plus fiable que xcodebuild pour cette étape)
+      - name: Build Projucer using CMake
         run: |
-          echo "Building Projucer..."
-          cd JUCE/extras/Projucer/Builds/MacOSX
-          # On utilise -scheme pour éviter les erreurs de cibles
-          xcodebuild -project Projucer.xcodeproj -scheme Projucer -configuration Release -allowProvisioningUpdates
-
-      # ÉTAPE 3 : Générer le projet Xcode pour VOTRE plugin
+          echo "Building Projucer with CMake..."
+          # On va dans le dossier du Projucer
+          cd JUCE/extras/Projucer
+          # On prépare le build
+          cmake . -B build -DCMAKE_BUILD_TYPE=Release
+          # On lance la compilation
+          cmake --build build --config Release
+          
+      # 3. Générer le projet Xcode de VOTRE plugin
       - name: Generate Xcode Project via Projucer
         run: |
-          echo "Generating Xcode project from .jucer file..."
-          PROJUCER_APP="./JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer"
+          echo "Generating Xcode project..."
+          # Le chemin change légèrement avec CMake, on le cible précisément
+          # Note: On cherche le binaire compilé à l'étape précédente
+          PROJUCER_APP=$(find JUCE/extras/Projucer/build -name Projucer -type f | grep "MacOS/Projucer" | head -n 1)
+          
+          echo "Projucer found at: $PROJUCER_APP"
           chmod +x "$PROJUCER_APP"
           
-          # Génération du dossier Builds/MacOSX qui vous manquait
+          # On génère le projet
           "$PROJUCER_APP" --resave "${{ env.JUCER_FILE }}"
           
+          # Vérification
           if [ ! -d "${{ env.XCODE_PROJECT_PATH }}" ]; then
             echo "::error::Failed to generate Xcode project!"
             exit 1
           fi
 
-      # ÉTAPE 4 : Compiler le plugin (AU & VST3) en mode Universel (Intel + Apple Silicon)
+      # 4. Compiler le plugin (La partie qui nous intéresse pour Logic Pro)
       - name: Build Audio Plugin
         run: |
-          # Le -arch x86_64 -arch arm64 assure que le plugin marche partout
+          # Ici on garde xcodebuild car c'est nécessaire pour le format .component (AU)
           xcodebuild -project "${{ env.XCODE_PROJECT_PATH }}" \
             -scheme "${{ env.PROJECT_NAME }}" \
             -configuration Release \
@@ -67,7 +73,7 @@ jobs:
             -allowProvisioningUpdates \
             build
 
-      # ÉTAPE 5 : Zip et Vérification
+      # 5. Zip et Upload
       - name: Zip Plugins
         run: |
           cd "${{ env.BUILD_DIR }}"
