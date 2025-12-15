@@ -5,34 +5,55 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch: # Permet de lancer le build manuellement
+  workflow_dispatch:
 
 env:
   PROJECT_NAME: UltimateAdlibs
-  # Chemin vers le projet Xcode généré par JUCE
+  # Le nom du fichier .jucer à la racine
+  JUCER_FILE: UltimateAdlibs.jucer
+  # Chemins qui seront générés par le Projucer
   XCODE_PROJECT_PATH: Builds/MacOSX/UltimateAdlibs.xcodeproj
-  # Dossier de sortie standard de Xcode
   BUILD_DIR: Builds/MacOSX/build/Release
 
 jobs:
   build_mac:
-    name: Build MacOS (AU & VST3)
+    name: Build MacOS (No Mac Required)
     runs-on: macos-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive # Important si vous utilisez des sous-modules pour JUCE
 
-      - name: Setup Xcode version
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
-
-      - name: Build Universal Binary (Intel + Apple Silicon)
+      # ÉTAPE 1 : Télécharger JUCE (nécessaire car le .jucer pointe vers JUCE/modules)
+      - name: Install JUCE
         run: |
-          # Cette commande est cruciale pour Logic Pro sur M1/M2/M3
+          echo "Cloning JUCE..."
+          # On clone dans un dossier "JUCE" car votre fichier .jucer attend les modules dans "JUCE/modules"
+          git clone --depth 1 --branch master https://github.com/juce-framework/JUCE.git JUCE
+
+      # ÉTAPE 2 : Compiler le Projucer (L'outil qui génère le projet Xcode)
+      - name: Build Projucer
+        run: |
+          echo "Building Projucer..."
+          cd JUCE/extras/Projucer/Builds/MacOSX
+          xcodebuild -configuration Release -target Projucer -quiet
+          
+      # ÉTAPE 3 : Générer le projet Xcode grâce au Projucer
+      - name: Generate Xcode Project via Projucer
+        run: |
+          echo "Generating Xcode project from .jucer file..."
+          # On utilise le Projucer qu'on vient de compiler pour "resave" votre projet
+          ./JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer --resave "${{ env.JUCER_FILE }}"
+          
+          # Vérification que le projet a bien été créé
+          if [ ! -d "${{ env.XCODE_PROJECT_PATH }}" ]; then
+            echo "::error::Failed to generate Xcode project!"
+            exit 1
+          fi
+
+      # ÉTAPE 4 : Compiler le plugin (AU & VST3) en mode Universel (Intel + M1/M2)
+      - name: Build Audio Plugin
+        run: |
           xcodebuild -project "${{ env.XCODE_PROJECT_PATH }}" \
             -scheme "${{ env.PROJECT_NAME }}" \
             -configuration Release \
@@ -42,22 +63,20 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build
 
-      - name: Verify Build Artifacts
-        run: |
-          echo "Checking for built plugins..."
-          ls -R "${{ env.BUILD_DIR }}"
-          
-          if [ ! -d "${{ env.BUILD_DIR }}/${{ env.PROJECT_NAME }}.component" ]; then
-            echo "::error::Audio Unit (.component) not found! Logic Pro needs this."
-            exit 1
-          fi
-
+      # ÉTAPE 5 : Vérification et Zip
       - name: Zip Plugins
         run: |
           cd "${{ env.BUILD_DIR }}"
-          # Zip du VST3
+          ls -la
+          
+          # Vérification de sécurité
+          if [ ! -d "${{ env.PROJECT_NAME }}.component" ]; then
+            echo "::error::.component file missing!"
+            exit 1
+          fi
+
+          # Création des archives
           zip -r "${{ env.PROJECT_NAME }}-Mac-VST3.zip" "${{ env.PROJECT_NAME }}.vst3"
-          # Zip du Audio Unit (Le plus important pour Logic)
           zip -r "${{ env.PROJECT_NAME }}-Mac-AU.zip" "${{ env.PROJECT_NAME }}.component"
 
       - name: Upload VST3 Artifact
