@@ -16,7 +16,6 @@ env:
 jobs:
   build_mac:
     name: Build MacOS (Universal)
-    # On reste sur macOS 14 (Sonoma) pour la stabilité avec JUCE 7
     runs-on: macos-14
 
     steps:
@@ -42,44 +41,40 @@ jobs:
           PROJUCER_APP=$(find JUCE/cmake-build -name Projucer -type f | grep "MacOS/Projucer" | head -n 1)
           chmod +x "$PROJUCER_APP"
           
-          # Correction des chemins dans le .jucer
+          # Correction des chemins .jucer
           sed -i '' 's/useGlobalPath="1"/useGlobalPath="0"/g' "${{ env.JUCER_FILE }}"
           sed -i '' 's|path=".*JUCE/modules"|path="JUCE/modules"|g' "${{ env.JUCER_FILE }}"
 
           "$PROJUCER_APP" --resave "${{ env.JUCER_FILE }}"
 
-      # 4. DEBUG : Lister les schémas disponibles (Pour être sûr à 100%)
+      # 4. DEBUG : Lister les schémas
       - name: List Xcode Schemes
         run: |
-          echo "Listing available schemes..."
           xcodebuild -project "${{ env.XCODE_PROJECT_PATH }}" -list
 
-      # 5. Compiler la version AU (Audio Unit - Pour Logic Pro)
+      # 5. Compiler AU (Logic Pro) - Avec signature Ad-Hoc
       - name: Build AU Plugin
         run: |
-          echo "Building AU..."
-          # On cible spécifiquement le schéma "UltimateAdlibs - AU"
           xcodebuild -project "${{ env.XCODE_PROJECT_PATH }}" \
             -scheme "${{ env.PROJECT_NAME }} - AU" \
             -configuration Release \
             -arch x86_64 -arch arm64 \
             ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             -allowProvisioningUpdates \
             build
 
-      # 6. Compiler la version VST3 (Pour les autres DAWs)
+      # 6. Compiler VST3 (Correction Manifest Helper)
       - name: Build VST3 Plugin
         run: |
-          echo "Building VST3..."
-          # On cible spécifiquement le schéma "UltimateAdlibs - VST3"
+          # Le tiret "-" dans CODE_SIGN_IDENTITY corrige l'erreur du Manifest Helper
           xcodebuild -project "${{ env.XCODE_PROJECT_PATH }}" \
             -scheme "${{ env.PROJECT_NAME }} - VST3" \
             -configuration Release \
             -arch x86_64 -arch arm64 \
             ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             -allowProvisioningUpdates \
             build
@@ -90,7 +85,6 @@ jobs:
           cd "${{ env.BUILD_DIR }}"
           ls -la
           
-          # Vérification que le AU est bien là (Priorité absolue)
           if [ ! -d "${{ env.PROJECT_NAME }}.component" ]; then
             echo "::error::AU Plugin (.component) failed to build."
             exit 1
