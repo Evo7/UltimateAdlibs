@@ -1,15 +1,73 @@
-- name: Zip plugins
+name: Build UltimateAdlibs
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch: # Permet de lancer le build manuellement
+
+env:
+  PROJECT_NAME: UltimateAdlibs
+  # Chemin vers le projet Xcode généré par JUCE
+  XCODE_PROJECT_PATH: Builds/MacOSX/UltimateAdlibs.xcodeproj
+  # Dossier de sortie standard de Xcode
+  BUILD_DIR: Builds/MacOSX/build/Release
+
+jobs:
+  build_mac:
+    name: Build MacOS (AU & VST3)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive # Important si vous utilisez des sous-modules pour JUCE
+
+      - name: Setup Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build Universal Binary (Intel + Apple Silicon)
         run: |
-          cd Builds/MacOSX/build/Release
-          zip -r ${{ env.PROJECT_NAME }}-Mac-AU.zip ${{ env.PROJECT_NAME }}.component
+          # Cette commande est cruciale pour Logic Pro sur M1/M2/M3
+          xcodebuild -project "${{ env.XCODE_PROJECT_PATH }}" \
+            -scheme "${{ env.PROJECT_NAME }}" \
+            -configuration Release \
+            -arch x86_64 -arch arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Verify Build Artifacts
+        run: |
+          echo "Checking for built plugins..."
+          ls -R "${{ env.BUILD_DIR }}"
           
-      - name: Upload AU artifact
+          if [ ! -d "${{ env.BUILD_DIR }}/${{ env.PROJECT_NAME }}.component" ]; then
+            echo "::error::Audio Unit (.component) not found! Logic Pro needs this."
+            exit 1
+          fi
+
+      - name: Zip Plugins
+        run: |
+          cd "${{ env.BUILD_DIR }}"
+          # Zip du VST3
+          zip -r "${{ env.PROJECT_NAME }}-Mac-VST3.zip" "${{ env.PROJECT_NAME }}.vst3"
+          # Zip du Audio Unit (Le plus important pour Logic)
+          zip -r "${{ env.PROJECT_NAME }}-Mac-AU.zip" "${{ env.PROJECT_NAME }}.component"
+
+      - name: Upload VST3 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PROJECT_NAME }}-Mac-VST3
+          path: ${{ env.BUILD_DIR }}/${{ env.PROJECT_NAME }}-Mac-VST3.zip
+
+      - name: Upload AU Artifact (For Logic Pro)
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PROJECT_NAME }}-Mac-AU
-          path: Builds/MacOSX/build/Release/${{ env.PROJECT_NAME }}-Mac-AU.zip
-```
-
-Après le build, tu auras un fichier `.component` (Audio Unit) à placer dans :
-```
-/Library/Audio/Plug-Ins/Components/
+          path: ${{ env.BUILD_DIR }}/${{ env.PROJECT_NAME }}-Mac-AU.zip
