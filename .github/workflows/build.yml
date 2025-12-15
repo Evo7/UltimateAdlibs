@@ -16,7 +16,8 @@ env:
 jobs:
   build_mac:
     name: Build MacOS (Universal)
-    runs-on: macos-latest
+    # CORRECTION CRUCIALE : On force macOS 14 pour éviter Xcode 16 qui casse JUCE 7
+    runs-on: macos-14
 
     steps:
       - name: Checkout code
@@ -28,26 +29,24 @@ jobs:
           echo "Cloning JUCE 7.0.12..."
           git clone --depth 1 --branch 7.0.12 https://github.com/juce-framework/JUCE.git JUCE
 
-      # 2. Compiler le Projucer avec CMAKE (Méthode Correcte)
+      # 2. Compiler le Projucer avec CMAKE
       - name: Build Projucer using CMake
         run: |
           echo "Configuring JUCE to build Projucer..."
-          # ON RESTE A LA RACINE DE JUCE (C'est la correction clé)
           cd JUCE
           
-          # On configure le projet global en activant les EXTRAS (dont Projucer fait partie)
+          # Configuration avec support des extras
           cmake . -B cmake-build -DJUCE_BUILD_EXTRAS=ON -DCMAKE_BUILD_TYPE=Release
           
-          # On lance la compilation uniquement pour la cible "Projucer"
-          echo "Building Projucer target..."
+          # Compilation de la cible Projucer uniquement
+          echo "Building Projucer..."
           cmake --build cmake-build --target Projucer --config Release
 
       # 3. Générer le projet Xcode de VOTRE plugin
       - name: Generate Xcode Project via Projucer
         run: |
           echo "Locating Projucer binary..."
-          # On utilise find car le chemin de sortie CMake peut varier légèrement
-          # On cherche le fichier exécutable situé dans le dossier MacOS du bundle .app
+          # Recherche automatique du binaire Projucer compilé
           PROJUCER_APP=$(find JUCE/cmake-build -name Projucer -type f | grep "MacOS/Projucer" | head -n 1)
           
           if [ -z "$PROJUCER_APP" ]; then
@@ -61,13 +60,13 @@ jobs:
           echo "Generating Xcode project..."
           "$PROJUCER_APP" --resave "${{ env.JUCER_FILE }}"
           
-          # Vérification que le dossier Builds/MacOSX a été créé
+          # Vérification
           if [ ! -d "${{ env.XCODE_PROJECT_PATH }}" ]; then
-            echo "::error::Failed to generate Xcode project! The .jucer file might have invalid paths."
+            echo "::error::Failed to generate Xcode project!"
             exit 1
           fi
 
-      # 4. Compiler le plugin (Audio Unit pour Logic Pro)
+      # 4. Compiler le plugin (Pour Logic Pro)
       - name: Build Audio Plugin
         run: |
           echo "Building plugin via xcodebuild..."
@@ -88,7 +87,7 @@ jobs:
           ls -la
           
           if [ ! -d "${{ env.PROJECT_NAME }}.component" ]; then
-            echo "::error::.component file missing! Logic Pro build failed."
+            echo "::error::.component file missing! Build failed."
             exit 1
           fi
 
