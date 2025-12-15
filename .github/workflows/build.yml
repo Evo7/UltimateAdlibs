@@ -16,7 +16,7 @@ env:
 jobs:
   build_mac:
     name: Build MacOS (No Mac Required)
-    runs-on: macos-13 # On utilise macOS 13 (Ventura) qui est très stable pour Xcode
+    runs-on: macos-13 # On utilise macOS 13 (Ventura) qui est très stable pour Xcode ok
 
     steps:
       - name: Checkout code
