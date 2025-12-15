@@ -1,0 +1,75 @@
+name: Build VST3 Plugin
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Permet de lancer manuellement
+
+env:
+  PROJECT_NAME: UltimateAdlibs
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download JUCE
+        run: |
+          curl -L https://github.com/juce-framework/JUCE/releases/download/7.0.9/juce-7.0.9-osx.zip -o juce.zip
+          unzip juce.zip
+          
+      - name: Build Projucer
+        run: |
+          cd JUCE/extras/Projucer/Builds/MacOSX
+          xcodebuild -project Projucer.xcodeproj -configuration Release -jobs $(sysctl -n hw.ncpu)
+          
+      - name: Resave project with Projucer
+        run: |
+          JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer --resave ${{ env.PROJECT_NAME }}.jucer
+          
+      - name: Build VST3
+        run: |
+          cd Builds/MacOSX
+          xcodebuild -project ${{ env.PROJECT_NAME }}.xcodeproj -configuration Release -jobs $(sysctl -n hw.ncpu)
+          
+      - name: Upload VST3 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PROJECT_NAME }}-Mac-VST3
+          path: Builds/MacOSX/build/Release/${{ env.PROJECT_NAME }}.vst3
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download JUCE
+        run: |
+          curl -L https://github.com/juce-framework/JUCE/releases/download/7.0.9/juce-7.0.9-windows.zip -o juce.zip
+          Expand-Archive -Path juce.zip -DestinationPath .
+          
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Projucer
+        run: |
+          msbuild "JUCE\extras\Projucer\Builds\VisualStudio2022\Projucer.sln" /p:Configuration=Release /p:Platform=x64
+          
+      - name: Resave project with Projucer
+        run: |
+          & "JUCE\extras\Projucer\Builds\VisualStudio2022\x64\Release\App\Projucer.exe" --resave "${{ env.PROJECT_NAME }}.jucer"
+          
+      - name: Build VST3
+        run: |
+          msbuild "Builds\VisualStudio2022\${{ env.PROJECT_NAME }}.sln" /p:Configuration=Release /p:Platform=x64
+          
+      - name: Upload VST3 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PROJECT_NAME }}-Windows-VST3
+          path: Builds/VisualStudio2022/x64/Release/VST3/${{ env.PROJECT_NAME }}.vst3
