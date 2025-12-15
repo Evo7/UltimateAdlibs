@@ -29,24 +29,26 @@ jobs:
 
       - name: Fix module paths and resave
         run: |
-          # Update the .jucer file to use the correct JUCE path
           sed -i '' 's|C:\\\\JUCE\\\\modules|JUCE/modules|g' ${{ env.PROJECT_NAME }}.jucer
           sed -i '' 's|C:/JUCE/modules|JUCE/modules|g' ${{ env.PROJECT_NAME }}.jucer
-          sed -i '' 's|useGlobalPath="0"|useGlobalPath="0"|g' ${{ env.PROJECT_NAME }}.jucer
-          # Resave with Projucer
           JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer --set-global-search-path osx defaultJuceModulePath "$(pwd)/JUCE/modules"
           JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer --resave ${{ env.PROJECT_NAME }}.jucer
           
-      - name: Build VST3
+      - name: Build VST3 Universal Binary
         run: |
           cd Builds/MacOSX
-          xcodebuild -project ${{ env.PROJECT_NAME }}.xcodeproj -configuration Release -jobs $(sysctl -n hw.ncpu)
+          xcodebuild -project ${{ env.PROJECT_NAME }}.xcodeproj -configuration Release -jobs $(sysctl -n hw.ncpu) ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO
+          
+      - name: Zip VST3 bundle
+        run: |
+          cd Builds/MacOSX/build/Release
+          zip -r ${{ env.PROJECT_NAME }}-Mac-VST3.zip ${{ env.PROJECT_NAME }}.vst3
           
       - name: Upload VST3 artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PROJECT_NAME }}-Mac-VST3
-          path: Builds/MacOSX/build/Release/${{ env.PROJECT_NAME }}.vst3
+          path: Builds/MacOSX/build/Release/${{ env.PROJECT_NAME }}-Mac-VST3.zip
 
   build-windows:
     runs-on: windows-latest
@@ -68,9 +70,7 @@ jobs:
 
       - name: Fix module paths and resave
         run: |
-          # Update paths in .jucer file
           (Get-Content "${{ env.PROJECT_NAME }}.jucer") -replace 'C:\\JUCE\\modules', 'JUCE/modules' -replace 'C:/JUCE/modules', 'JUCE/modules' | Set-Content "${{ env.PROJECT_NAME }}.jucer"
-          # Set global path and resave
           & "JUCE\extras\Projucer\Builds\VisualStudio2022\x64\Release\App\Projucer.exe" --set-global-search-path windows defaultJuceModulePath "$((Get-Location).Path)\JUCE\modules"
           & "JUCE\extras\Projucer\Builds\VisualStudio2022\x64\Release\App\Projucer.exe" --resave "${{ env.PROJECT_NAME }}.jucer"
           
